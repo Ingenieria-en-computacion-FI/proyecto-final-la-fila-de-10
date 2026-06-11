@@ -5,72 +5,84 @@
 
 #define MAX_SIMBOLOS 100
 
-// Nuestra Tabla de Símbolos en memoria global
-Simbolo tabla_simbolos[MAX_SIMBOLOS];
+Symbol tabla_simbolos[MAX_SIMBOLOS];
 int contador_simbolos = 0;
+uint32_t pc_actual = 0; // Program Counter
 
-// Contador de Programa (PC) que rastrea la dirección actual en bytes
-uint32_t posicion_memoria_actual = 0;
+// Variables externas que vienen del Lexer
+extern Token tokens_linea[];
+extern int num_tokens;
 
-// Función para registrar una etiqueta en la Tabla de Símbolos
-void agregar_simbolo(const char *nombre, uint32_t direccion) {
-    // Evitar duplicados
+void agregar_simbolo(const char *nombre, int direccion) {
     for (int i = 0; i < contador_simbolos; i++) {
-        if (strcmp(tabla_simbolos[i].nombre, nombre) == 0) return;
+        if (strcmp(tabla_simbolos[i].name, nombre) == 0) return;
     }
-
     if (contador_simbolos < MAX_SIMBOLOS) {
-        // Copiar el nombre limpiando el ':' al final si lo tiene
-        char nombre_limpio[64];
-        strcpy(nombre_limpio, nombre);
-        int len = strlen(nombre_limpio);
-        if (nombre_limpio[len - 1] == ':') {
-            nombre_limpio[len - 1] = '\0';
-        }
-
-        strcpy(tabla_simbolos[contador_simbolos].nombre, nombre_limpio);
-        tabla_simbolos[contador_simbolos].direccion = direccion;
-        tabla_simbolos[contador_simbolos].es_global = 0; // Por defecto local
+        strcpy(tabla_simbolos[contador_simbolos].name, nombre);
+        tabla_simbolos[contador_simbolos].address = direccion;
+        tabla_simbolos[contador_simbolos].defined = 1;
         contador_simbolos++;
     }
 }
 
-// Simula la primera pasada: analiza el tamaño de la instrucción y calcula direcciones
-void procesar_instruccion_para_tabla(const char *mnemonico, const char *operandos) {
-    // Si es una etiqueta (termina con ':'), la registramos con la dirección actual
-    if (mnemonico[strlen(mnemonico) - 1] == ':') {
-        agregar_simbolo(mnemonico, posicion_memoria_actual);
-        return;
+// Analizador heurístico para determinar el tamaño de la instrucción
+void calcular_tamano_instruccion() {
+    if (num_tokens == 0) return;
+
+    int i = 0;
+
+    // Detectar si la línea es una etiqueta
+    if (tokens_linea[i].type == TOKEN_IDENTIFIER && i + 1 < num_tokens && tokens_linea[i+1].type == TOKEN_COLON) {
+        agregar_simbolo(tokens_linea[i].lexeme, pc_actual);
+        i += 2;
+        if (i >= num_tokens) return; // Línea que solo tenía la etiqueta
     }
 
-    // Aritmética matemática de bytes para IA-32:
-    // Calculamos cuánto espacio ocupará la instrucción en el binario final
-    if (strcmp(mnemonico, "MOV") == 0) {
-        // Un MOV inmediato a registro suele ocupar 5 bytes (1 byte opcode + 4 bytes inmediato)
-        // Un MOV con direccionamiento SIB complejo ocupa cerca de 7 bytes
-        if (operandos != NULL && strchr(operandos, '[') != NULL) {
-            posicion_memoria_actual += 7; // Simulación de instrucción compleja SIB
-        } else {
-            posicion_memoria_actual += 5; // MOV EAX, 10
+    if (tokens_linea[i].type == TOKEN_INSTRUCTION) {
+        const char *mnemonico = tokens_linea[i].lexeme;
+        int tamano_base = 1; // La mayoría tiene 1 byte de Opcode
+        int requiere_modrm = 0;
+        int requiere_sib = 0;
+        int tamano_inmediato = 0;
+        int tamano_desplazamiento = 0;
+
+        i++; // Avanzamos a los operandos
+
+        // Análisis de operandos
+        while (i < num_tokens) {
+            if (tokens_linea[i].type == TOKEN_REGISTER) {
+                requiere_modrm = 1; 
+            } 
+            else if (tokens_linea[i].type == TOKEN_NUMBER) {
+                // Si hay un número suelto (no SIB), es un inmediato (32 bits = 4 bytes)
+                tamano_inmediato = 4; 
+            }
+            else if (tokens_linea[i].type == TOKEN_LBRACKET) {
+                // Modo direccionamiento a memoria detectado
+                requiere_modrm = 1;
+                // Escanear dentro de los corchetes buscando multiplicadores para SIB
+                int j = i;
+                while (j < num_tokens && tokens_linea[j].type != TOKEN_RBRACKET) {
+                    if (tokens_linea[j].type == TOKEN_STAR) requiere_sib = 1;
+                    if (tokens_linea[j].type == TOKEN_NUMBER) tamano_desplazamiento = 1; // Disp8 básico
+                    j++;
+                }
+                i = j; // Saltar todo el contenido de los corchetes
+            }
+            i++;
         }
-    } 
-    else if (strcmp(mnemonico, "JMP") == 0) {
-        posicion_memoria_actual += 5; // JMP relativo cercano/absoluto ocupa 5 bytes
-    } 
-    else if (strcmp(mnemonico, "ADD") == 0) {
-        posicion_memoria_actual += 3; // ADD registro, inmediato chico
-    } 
-    else if (strcmp(mnemonico, "RET") == 0) {
-        posicion_memoria_actual += 1; // Opcode 0xC3 ocupa exactamente 1 byte
-    }
-}
 
-// Imprime los resultados acumulados de la Tabla de Símbolos
-void imprimir_tabla_simbolos() {
-    printf("\n[EXITO] Tabla de Simbolos Generada en C:\n");
-    for (int i = 0; i < contador_simbolos; i++) {
-        printf("  -> Etiqueta '%s' en la direccion %d (Sección .TEXT)\n", 
-               tabla_simbolos[i].nombre, tabla_simbolos[i].direccion);
+        // Casos especiales (Saltos y retornos)
+        if (strcmp(mnemonico, "RET") == 0) {
+            pc_actual += 1;
+            return;
+        }
+        if (strcmp(mnemonico, "JMP") == 0 || strcmp(mnemonico, "CALL") == 0) {
+            pc_actual += 5; // Opcode + 32-bit relativo
+            return;
+        }
+
+        // Sumatoria final del tamaño dinámico
+        pc_actual += tamano_base + requiere_modrm + requiere_sib + tamano_inmediato + tamano_desplazamiento;
     }
-    printf("\nTamano total estimado de la seccion .text: %d bytes\n", posicion_memoria_actual);
 }
