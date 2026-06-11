@@ -1,39 +1,38 @@
 #include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+
+// Firmas de las funciones de otros módulos
+void tokenizar_linea_dinamica(const char *linea);
+void calcular_tamano_instruccion();
+void codificar_instruccion_dinamica();
+void generar_archivo_objeto(const char *nombre_archivo);
 
 #define MAX_LINEA 256
 
 int main(int argc, char *argv[]) {
-    printf("=== ENSAMBLADOR IA-32 Y MINI ENLAZADOR ===\n\n");
+    if (argc < 2) return 1;
 
-    if (argc < 2) {
-        printf("[ERROR] Uso correcto: ./assembler <archivo.asm>\n");
-        return 1;
-    }
-
+    // PRIMERA PASADA: Calcular memoria y Tabla de Símbolos
     FILE *archivo = fopen(argv[1], "r");
-    if (archivo == NULL) {
-        printf("[ERROR] No se pudo abrir el archivo: %s\n", argv[1]);
-        return 1;
-    }
-
     char linea[MAX_LINEA];
-    int numero_linea = 1;
-
-    // Lectura real del archivo línea por línea
-    while (fgets(linea, sizeof(linea), archivo) != NULL) {
-        // Aquí es donde en el futuro llamarás a tu nuevo Lexer
-        // tokenizar_linea_dinamica(linea);
-        
-        printf("[Linea %d] %s", numero_linea, linea);
-        numero_linea++;
-    }
-
-    fclose(archivo);
     
-    // Aquí irán después las llamadas al Parser, Encoder y Linker
-    // utilizando la lista de tokens generada por el Lexer.
+    printf("[1] Ejecutando Pasada 1 (Tabla de Simbolos y Parsing)...\n");
+    while (fgets(linea, sizeof(linea), archivo) != NULL) {
+        tokenizar_linea_dinamica(linea);
+        calcular_tamano_instruccion();
+    }
+    rewind(archivo); // Reiniciamos el cursor del archivo para la segunda pasada
+
+    // SEGUNDA PASADA: Generación de Opcodes y ModRM
+    printf("[2] Ejecutando Pasada 2 (Encoder IA-32)...\n");
+    while (fgets(linea, sizeof(linea), archivo) != NULL) {
+        tokenizar_linea_dinamica(linea);
+        codificar_instruccion_dinamica();
+    }
+    fclose(archivo);
+
+    // FASE FINAL: Creación del archivo objeto intermedio
+    printf("[3] Generando Formato Objeto...\n");
+    generar_archivo_objeto("salida.obj");
 
     return 0;
 }
