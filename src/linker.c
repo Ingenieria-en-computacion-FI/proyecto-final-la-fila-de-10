@@ -1,45 +1,36 @@
 #include <stdio.h>
 #include <stdint.h>
-#include <string.h>
 #include "estructuras.h"
 
-#define MAX_EXEC_BYTES 256
+extern uint8_t buffer_binario[];
+extern int indice_binario;
+extern Symbol tabla_simbolos[];
+extern int contador_simbolos;
 
-uint8_t binario_ejecutable_final[MAX_EXEC_BYTES];
-int tamano_ejecutable = 0;
+// Estructura clásica de un archivo objeto simple
+typedef struct {
+    char firma[4];          // "OBJ1"
+    int tamano_texto;       // Tamaño del código máquina
+    int num_simbolos;       // Cantidad de etiquetas exportadas
+} CabeceraObjeto;
 
-// Simulación de resolución de referencias cruzadas
-void enlazar_modulos(uint8_t *seccion_text_actual, int tamano_actual) {
-    printf("\n[5] Ejecutando Linker (Resolucion de dependencias externas)...\n");
-
-    // 1. Copiamos el código máquina del módulo principal que ya generamos
-    for(int i = 0; i < tamano_actual; i++) {
-        binario_ejecutable_final[tamano_ejecutable++] = seccion_text_actual[i];
+void generar_archivo_objeto(const char *nombre_archivo) {
+    FILE *out = fopen(nombre_archivo, "wb");
+    if (!out) {
+        printf("[ERROR] No se pudo crear el archivo objeto.\n");
+        return;
     }
 
-    printf("  -> Fusionando Seccion .TEXT principal (%d bytes)\n", tamano_actual);
-    printf("  -> Resolviendo Simbolo Global Externo: 'sumar' (Encontrado en modulo_matematico.obj)\n");
-    
-    // 2. Simulamos la inyección del código del segundo módulo (ejemplo: la rutina sumar)
-    // Agregamos un opcode simulado de un MOV y un RET del segundo archivo (0xB9 0x01 0x00 0x00 0x00 0xC3)
-    uint8_t codigo_modulo_externo[] = {0xB9, 0x01, 0x00, 0x00, 0x00, 0xC3};
-    int tamano_externo = sizeof(codigo_modulo_externo);
+    // 1. Escribir Cabecera
+    CabeceraObjeto cabecera = { {'O', 'B', 'J', '1'}, indice_binario, contador_simbolos };
+    fwrite(&cabecera, sizeof(CabeceraObjeto), 1, out);
 
-    printf("  -> Inyectando Tabla de Relocaciones en formato Little-Endian...\n");
-    
-    for(int i = 0; i < tamano_externo; i++) {
-        binario_ejecutable_final[tamano_ejecutable++] = codigo_modulo_externo[i];
-    }
+    // 2. Escribir la sección de código máquina (.text)
+    fwrite(buffer_binario, sizeof(uint8_t), indice_binario, out);
 
-    // 3. Desplegar el binario definitivo unificado (.EXE simulado)
-    printf("\n=== BINARIO EJECUTABLE FINAL (.EXE GENERADO) ===\n");
-    printf("Simbolos Globales Resueltos -> main: 0x0000 | sumar: 0x0015\n");
-    printf("Seccion .text Fusionada y Reubicada:\n[");
-    for (int i = 0; i < tamano_ejecutable; i++) {
-        printf("0x%02x", binario_ejecutable_final[i]);
-        if (i < tamano_ejecutable - 1) {
-            printf(", ");
-        }
-    }
-    printf("]\n");
+    // 3. Escribir Tabla de Símbolos para que el Linker final la resuelva
+    fwrite(tabla_simbolos, sizeof(Symbol), contador_simbolos, out);
+
+    fclose(out);
+    printf("[EXITO] Archivo objeto '%s' generado correctamente (%d bytes de texto).\n", nombre_archivo, indice_binario);
 }
