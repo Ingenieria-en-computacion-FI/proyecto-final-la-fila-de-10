@@ -31,6 +31,7 @@ void codificar_instruccion_dinamica() {
     if (num_tokens == 0) return;
 
     int i = 0;
+    // Ignorar etiquetas en la segunda pasada
     if (tokens_linea[i].type == TOKEN_IDENTIFIER && i + 1 < num_tokens && tokens_linea[i+1].type == TOKEN_COLON) i = 2;
     if (i >= num_tokens) return;
 
@@ -46,6 +47,26 @@ void codificar_instruccion_dinamica() {
         else if (strcmp(mnemonico, "SUB") == 0 && tokens_linea[i+1].type == TOKEN_REGISTER && tokens_linea[i+3].type == TOKEN_REGISTER) {
             emitir_byte(0x2B); 
             emitir_byte(build_modrm(3, get_register_code(tokens_linea[i+1].lexeme), get_register_code(tokens_linea[i+3].lexeme))); 
+        }
+        
+        // --- ARITMÉTICAS COMPLEJAS Y UNARIAS (Grupo F7) ---
+        else if ((strcmp(mnemonico, "NOT") == 0 || strcmp(mnemonico, "NEG") == 0 ||
+                  strcmp(mnemonico, "MUL") == 0 || strcmp(mnemonico, "DIV") == 0 ||
+                  strcmp(mnemonico, "IMUL") == 0 || strcmp(mnemonico, "IDIV") == 0) &&
+                 tokens_linea[i+1].type == TOKEN_REGISTER) {
+            
+            emitir_byte(0xF7); // Opcode base para operaciones unarias r/m32
+            unsigned char reg_dst = get_register_code(tokens_linea[i+1].lexeme);
+            unsigned char extension = 0;
+            
+            if (strcmp(mnemonico, "NOT") == 0) extension = 2;
+            else if (strcmp(mnemonico, "NEG") == 0) extension = 3;
+            else if (strcmp(mnemonico, "MUL") == 0) extension = 4;
+            else if (strcmp(mnemonico, "IMUL") == 0) extension = 5;
+            else if (strcmp(mnemonico, "DIV") == 0) extension = 6;
+            else if (strcmp(mnemonico, "IDIV") == 0) extension = 7;
+            
+            emitir_byte(build_modrm(3, extension, reg_dst)); // Mod=11 (Registro)
         }
         
         // --- LÓGICAS Y COMPARACIONES ---
@@ -81,25 +102,39 @@ void codificar_instruccion_dinamica() {
         else if (strcmp(mnemonico, "JMP") == 0 || mnemonico[0] == 'J' || strcmp(mnemonico, "CALL") == 0) {
             if (strcmp(mnemonico, "JMP") == 0) emitir_byte(0xE9);
             else if (strcmp(mnemonico, "CALL") == 0) emitir_byte(0xE8);
-            else if (strcmp(mnemonico, "JE") == 0) { emitir_byte(0x0F); emitir_byte(0x84); }
-            else if (strcmp(mnemonico, "JNE") == 0) { emitir_byte(0x0F); emitir_byte(0x85); }
+            else {
+                emitir_byte(0x0F); // Prefijo para saltos condicionales de 32 bits
+                if (strcmp(mnemonico, "JE") == 0) emitir_byte(0x84);
+                else if (strcmp(mnemonico, "JNE") == 0) emitir_byte(0x85);
+                else if (strcmp(mnemonico, "JL") == 0) emitir_byte(0x8C);
+                else if (strcmp(mnemonico, "JGE") == 0) emitir_byte(0x8D);
+                else if (strcmp(mnemonico, "JLE") == 0) emitir_byte(0x8E);
+                else if (strcmp(mnemonico, "JG") == 0) emitir_byte(0x8F);
+            }
             emitir_byte(0x00); emitir_byte(0x00); emitir_byte(0x00); emitir_byte(0x00); // Espacio para relocalización
         }
         else if (strcmp(mnemonico, "RET") == 0) { emitir_byte(0xC3); }
 
-        // --- TRANSFERENCIA DE DATOS Y SIB ---
-        else if (strcmp(mnemonico, "MOV") == 0) {
-            if (tokens_linea[i+1].type == TOKEN_REGISTER && tokens_linea[i+3].type == TOKEN_NUMBER) {
+        // --- TRANSFERENCIA DE DATOS (MOV) Y CÁLCULO DE DIRECCIONES (LEA) ---
+        else if (strcmp(mnemonico, "MOV") == 0 || strcmp(mnemonico, "LEA") == 0) {
+            
+            // Caso: Instrucción Registro, Inmediato (Ej. MOV EAX, 10)
+            if (strcmp(mnemonico, "MOV") == 0 && tokens_linea[i+1].type == TOKEN_REGISTER && tokens_linea[i+3].type == TOKEN_NUMBER) {
                 emitir_byte(0xB8 + get_register_code(tokens_linea[i+1].lexeme));
                 uint32_t inmm = (uint32_t)strtoul(tokens_linea[i+3].lexeme, NULL, 0);
                 emitir_byte(inmm & 0xFF); emitir_byte((inmm >> 8) & 0xFF); emitir_byte((inmm >> 16) & 0xFF); emitir_byte((inmm >> 24) & 0xFF);
             }
-            else if (tokens_linea[i+1].type == TOKEN_REGISTER && tokens_linea[i+3].type == TOKEN_REGISTER) {
+            // Caso: Instrucción Registro, Registro (Ej. MOV EAX, EBX)
+            else if (strcmp(mnemonico, "MOV") == 0 && tokens_linea[i+1].type == TOKEN_REGISTER && tokens_linea[i+3].type == TOKEN_REGISTER) {
                 emitir_byte(0x89);
                 emitir_byte(build_modrm(3, get_register_code(tokens_linea[i+3].lexeme), get_register_code(tokens_linea[i+1].lexeme))); 
             }
+            // Caso complejo con ModRM y SIB (Ej. MOV EAX, [EBX+ECX*4+8] o LEA EAX, [EBX+ECX*4])
             else if (tokens_linea[i+1].type == TOKEN_REGISTER && tokens_linea[i+3].type == TOKEN_LBRACKET) {
-                emitir_byte(0x8B); 
+                
+                if (strcmp(mnemonico, "MOV") == 0) emitir_byte(0x8B); 
+                else if (strcmp(mnemonico, "LEA") == 0) emitir_byte(0x8D);
+                
                 unsigned char reg_dst = get_register_code(tokens_linea[i+1].lexeme);
                 unsigned char base_code = 0, index_code = 0, scale_val = 0;
                 uint32_t disp = 0;
