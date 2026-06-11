@@ -5,18 +5,14 @@
 
 #define MAX_SIMBOLOS 100
 
-// Tabla de Símbolos y Contador de Programa global
 Symbol tabla_simbolos[MAX_SIMBOLOS];
 int contador_simbolos = 0;
 uint32_t pc_actual = 0; 
 
-// Variables externas alimentadas por el Lexer
 extern Token tokens_linea[];
 extern int num_tokens;
 
-// Registra una etiqueta y su dirección en memoria
 void agregar_simbolo(const char *nombre, int direccion) {
-    // Evitar duplicados
     for (int i = 0; i < contador_simbolos; i++) {
         if (strcmp(tabla_simbolos[i].name, nombre) == 0) return;
     }
@@ -28,7 +24,6 @@ void agregar_simbolo(const char *nombre, int direccion) {
     }
 }
 
-// Analizador principal de la Primera Pasada
 void calcular_tamano_instruccion() {
     if (num_tokens == 0) return;
 
@@ -38,10 +33,10 @@ void calcular_tamano_instruccion() {
     if (tokens_linea[i].type == TOKEN_IDENTIFIER && i + 1 < num_tokens && tokens_linea[i+1].type == TOKEN_COLON) {
         agregar_simbolo(tokens_linea[i].lexeme, pc_actual);
         i += 2;
-        if (i >= num_tokens) return; // Si la línea solo tenía la etiqueta, terminamos
+        if (i >= num_tokens) return;
     }
 
-    // 2. Manejo de Directivas de Memoria (.data / .bss)
+    // 2. Manejo de Directivas de Memoria y Control
     if (tokens_linea[i].type == TOKEN_IDENTIFIER || tokens_linea[i].type == TOKEN_DIRECTIVE) {
         const char *mnemonico = tokens_linea[i].lexeme;
         
@@ -49,47 +44,58 @@ void calcular_tamano_instruccion() {
         if (strcmp(mnemonico, "DW") == 0) { pc_actual += 2; return; }
         if (strcmp(mnemonico, "DD") == 0) { pc_actual += 4; return; }
         
-        if (strcmp(mnemonico, "RESB") == 0 && i + 1 < num_tokens && tokens_linea[i+1].type == TOKEN_NUMBER) {
+        if (strcmp(mnemonico, "RESB") == 0 && i + 1 < num_tokens) {
             pc_actual += atoi(tokens_linea[i+1].lexeme);
             return;
         }
-        if (strcmp(mnemonico, "RESD") == 0 && i + 1 < num_tokens && tokens_linea[i+1].type == TOKEN_NUMBER) {
+        if (strcmp(mnemonico, "RESW") == 0 && i + 1 < num_tokens) {
+            pc_actual += (atoi(tokens_linea[i+1].lexeme) * 2);
+            return;
+        }
+        if (strcmp(mnemonico, "RESD") == 0 && i + 1 < num_tokens) {
             pc_actual += (atoi(tokens_linea[i+1].lexeme) * 4);
             return;
         }
+        if (strcmp(mnemonico, "ORG") == 0 && i + 1 < num_tokens) {
+            pc_actual = (uint32_t)strtoul(tokens_linea[i+1].lexeme, NULL, 0);
+            return;
+        }
+        if (strcmp(mnemonico, "GLOBAL") == 0 || strcmp(mnemonico, "EXTERN") == 0) {
+            return; // No consumen espacio
+        }
     }
 
-    // 3. Cálculo de tamaño para Instrucciones (.text)
+    // 3. Cálculo para Instrucciones (.text)
     if (tokens_linea[i].type == TOKEN_INSTRUCTION) {
         const char *mnemonico = tokens_linea[i].lexeme;
-        int tamano_base = 1; // La mayoría tiene 1 byte de Opcode
+        int tamano_base = 1; 
         int requiere_modrm = 0;
         int requiere_sib = 0;
         int tamano_inmediato = 0;
         int tamano_desplazamiento = 0;
 
-        // Casos especiales fijos
-        if (strcmp(mnemonico, "RET") == 0) { pc_actual += 1; return; }
+        // Tamaños fijos para saltos y sin operandos
+        if (strcmp(mnemonico, "RET") == 0 || strcmp(mnemonico, "NOP") == 0) { pc_actual += 1; return; }
         if (strcmp(mnemonico, "JMP") == 0 || strcmp(mnemonico, "CALL") == 0) { pc_actual += 5; return; }
-        if (strcmp(mnemonico, "JE") == 0 || strcmp(mnemonico, "JNE") == 0) { pc_actual += 6; return; } // Opcode de 2 bytes + 32-bit relativo
+        if (mnemonico[0] == 'J' && strcmp(mnemonico, "JMP") != 0) { pc_actual += 6; return; } // Saltos condicionales (JE, JNE...)
+        if (strcmp(mnemonico, "INT") == 0) { pc_actual += 2; return; }
 
-        i++; // Avanzamos a los operandos
+        i++; 
 
-        // Análisis heurístico de operandos
+        // Análisis de operandos dinámicos
         while (i < num_tokens) {
             if (tokens_linea[i].type == TOKEN_REGISTER) {
                 requiere_modrm = 1; 
             } 
             else if (tokens_linea[i].type == TOKEN_NUMBER) {
-                tamano_inmediato = 4; // Asumimos inmediatos de 32 bits
+                tamano_inmediato = 4; 
             }
             else if (tokens_linea[i].type == TOKEN_LBRACKET) {
                 requiere_modrm = 1;
-                // Escanear SIB y Desplazamientos dentro de los corchetes
                 int j = i;
                 while (j < num_tokens && tokens_linea[j].type != TOKEN_RBRACKET) {
                     if (tokens_linea[j].type == TOKEN_STAR) requiere_sib = 1;
-                    if (tokens_linea[j].type == TOKEN_NUMBER) tamano_desplazamiento = 1; // Asumimos Disp8 básico
+                    if (tokens_linea[j].type == TOKEN_NUMBER) tamano_desplazamiento = 1; 
                     j++;
                 }
                 i = j; 
@@ -97,16 +103,6 @@ void calcular_tamano_instruccion() {
             i++;
         }
 
-        // Sumatoria y actualización del PC
         pc_actual += tamano_base + requiere_modrm + requiere_sib + tamano_inmediato + tamano_desplazamiento;
     }
-}
-
-// Función auxiliar para depuración
-void imprimir_tabla_simbolos() {
-    printf("\n--- TABLA DE SIMBOLOS ---\n");
-    for (int i = 0; i < contador_simbolos; i++) {
-        printf(" [%s] -> Offset: 0x%04X\n", tabla_simbolos[i].name, tabla_simbolos[i].address);
-    }
-    printf("Tamano total calculado: %d bytes\n", pc_actual);
 }
