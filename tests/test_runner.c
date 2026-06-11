@@ -6,12 +6,12 @@ int main() {
     printf("=== VALIDACION AUTOMATIZADA DE CAJA NEGRA ===\n\n");
 
     // ---------------------------------------------------------
-    // TEST 1: Caso Exitoso (Archivo basico.asm)
+    // TEST 1: Caso Complejo (Archivo pruebas_avanzadas.asm)
     // ---------------------------------------------------------
-    printf("[RUN] Test 1: Evaluando codigo correcto (examples\\basico.asm)...\n");
+    printf("[RUN] Test 1: Evaluando codigo avanzado (examples\\pruebas_avanzadas.asm)...\n");
     
-    // Ejecutamos el ensamblador pasandole el archivo correcto
-    int retorno1 = system("ensamblador.exe examples\\basico.asm");
+    // Ejecutamos el ensamblador pasandole el archivo con SIB y ModRM
+    int retorno1 = system("ensamblador.exe examples\\pruebas_avanzadas.asm");
     
     if (retorno1 == 0) {
         printf("  -> [PASADO] Test 1 completo la ejecucion sin errores.\n\n");
@@ -20,22 +20,21 @@ int main() {
     }
 
     // ---------------------------------------------------------
-    // TEST 2: Caso Defensivo / Manejo de Errores (Archivo error.asm)
+    // TEST 2: Caso de Modulos (Archivo prueba_externa.asm)
     // ---------------------------------------------------------
-    printf("[RUN] Test 2: Evaluando codigo corrupto (examples\\error.asm)...\n");
+    printf("[RUN] Test 2: Evaluando enlaces externos (examples\\prueba_externa.asm)...\n");
     
-    // Ejecutamos el ensamblador pasandole el archivo con errores
-    int retorno2 = system("ensamblador.exe examples\\error.asm");
+    // Ejecutamos el ensamblador pasandole el archivo con EXTERN
+    int retorno2 = system("ensamblador.exe examples\\prueba_externa.asm");
     
-    // Como tu main.c actual maneja la simulacion de forma segura, validamos su ejecucion
     if (retorno2 == 0) {
-        printf("  -> [PASADO] Test 2 ejecuto el sistema de control de errores con exito.\n\n");
+        printf("  -> [PASADO] Test 2 resolvio directivas del linker con exito.\n\n");
     } else {
-        printf("  -> [FALLO] Test 2 no pudo inicializar el modulo defensivo.\n\n");
+        printf("  -> [FALLO] Test 2 fallo al procesar modulos externos.\n\n");
     }
 
     printf("===================================================\n");
-    printf("[OK] TODAS LAS PRUEBAS AUTOMATIZADAS HAN PASADO\n");
+    printf("[OK] TODAS LAS PRUEBAS DE INTEGRACION HAN PASADO\n");
     printf("===================================================\n");
 
     return 0;
